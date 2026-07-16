@@ -1,0 +1,425 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MEMBER   // 普通成员
+  PM       // 项目经理
+  MANAGER  // 部门经理
+}
+
+enum TaskStatus {
+  POOL        // 任务池中
+  CLAIMED     // 已领取待PM确认
+  DRAFT       // 草稿
+  PENDING     // 待执行
+  IN_PROGRESS // 执行中
+  IN_REVIEW   // 待审核
+  REJECTED    // 已驳回
+  COMPLETED   // 已完成
+  CANCELLED   // 已取消
+}
+
+enum ScoreType {
+  REQUIREMENT  // 需求开发积分
+  TESTING      // 测试联调积分
+  OPS          // 运维支撑积分
+  TEAM         // 团队贡献积分
+  CLIENT_POS   // 客户反馈-表扬
+  CLIENT_NEG   // 客户反馈-投诉
+  RISK         // 风险扣减积分
+  PM_BONUS     // 项目经理任务管理分成
+}
+
+enum ScoreSourceType {
+  REQUIREMENT  // 需求
+  PROJECT      // 项目
+  OTHER        // 其它
+}
+
+enum TaskType {
+  REQUIREMENT_DEV  // 需求开发
+  OPS_SUPPORT      // 运维支撑
+}
+
+enum TaskAction {
+  SELF_DEV    // 自研
+  NON_SELF_DEV // 非自研
+}
+
+enum TaskSource {
+  PROJECT     // 项目
+  REQUIREMENT // 需求
+  OTHER       // 其它
+}
+
+enum AppealStatus {
+  PENDING   // 待处理
+  REVIEWING // 复核中
+  RESOLVED  // 已裁定
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String   // 真实姓名
+  role      Role     @default(MEMBER)
+  status    Boolean  @default(true) // 账号是否启用
+  
+  username  String?  @unique
+  password  String?  // bcrypt 哈希
+  
+  openid    String?  @unique
+  unionid   String?
+  phone     String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  createdTasks       Task[]         @relation("TaskCreator")
+  claimedTasks       Task[]         @relation("TaskClaimer")
+  assignedTasks      TaskAssignment[]
+  scoreRecords       ScoreRecord[]
+  appeals            Appeal[]       @relation("AppealSubmitter")
+  appealReviews      Appeal[]       @relation("AppealReviewer")
+  operationLogs      OperationLog[]
+  badges             Badge[]
+  extensions         TaskExtension[]
+  performanceReviews PerformanceReview[]
+  issues             Issue[]        // 创建的问题
+  reviewedIssueScores IssueScore[]  @relation("IssueScoreReviewer")
+  
+  @@map("users")
+}
+
+model Task {
+  id             String     @id @default(cuid())
+  title          String     // 任务标题
+  description    String?    // 任务描述
+  estimatedDays  Float      // 预估工作量（人日）
+  finalDays      Float?     // 最终工作量（人日），默认等于预估工作量，成员提交完成或项目经理审核时可修正
+
+  taskType       TaskType   @default(REQUIREMENT_DEV) // 任务类型：需求开发/运维支撑
+  taskSource     TaskSource @default(OTHER)            // 任务来源：项目/需求/其它
+  sourceNo       String?                                // 需求单号（taskSource=REQUIREMENT 时填写）
+  sourceName     String?                                // 项目名称（taskSource=PROJECT 时填写）
+  taskAction     TaskAction @default(SELF_DEV)         // 任务动作：自研/非自研
+
+  scoreRatio     Float      @default(1.00) // 积分转换比例（自研=1.00，非自研默认=0.60，可调整）
+
+  planFinishAt   DateTime?  // 计划完成时间
+  actualStartAt  DateTime?  // 实际开始时间（成员点击"开始"时记录）
+  actualFinishAt DateTime?  // 实际完成时间（成员提交完成时记录，驳回后更新为最后一次提交时间）
+
+  status         TaskStatus @default(DRAFT)
+
+  isPoolTask     Boolean   @default(false)  // 是否为任务池任务
+  claimedBy      String?                    // 领取人ID（CLAIMED状态时使用）
+  claimedUser    User?     @relation("TaskClaimer", fields: [claimedBy], references: [id])
+  claimRatio     Float?                    // 领取时的贡献比例
+
+  weightDev      Float      @default(0.40) // 开发实现
+  weightTest     Float      @default(0.25) // 测试验证
+  weightDebug    Float      @default(0.20) // 客户联调
+  weightOnline   Float      @default(0.10) // 上线支撑
+  weightDoc      Float      @default(0.05) // 文档培训
+
+  createdBy      String
+  creator        User       @relation("TaskCreator", fields: [createdBy], references: [id])
+
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  originalPlanFinishAt DateTime?   // 原始计划完成时间（任务开始后不可更改，申请延期时保留原始值）
+  
+  systemModuleId String?           // 系统归属ID
+  systemModule   SystemModule?     @relation(fields: [systemModuleId], references: [id])
+
+  assignments    TaskAssignment[]
+  scoreRecords   ScoreRecord[]
+  extensions     TaskExtension[]
+
+  @@map("tasks")
+}
+
+model TaskAssignment {
+  id        String    @id @default(cuid())
+  taskId    String
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  ratio     Float     // 贡献比例（0-1），由项目经理设定
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  @@unique([taskId, userId])
+  @@map("task_assignments")
+}
+
+model ScoreRecord {
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  
+  taskId      String?           // 关联任务
+  task        Task?             @relation(fields: [taskId], references: [id])
+  
+  type        ScoreType         // 积分类型
+  score       Float             // 积分值（可为负数）
+  reason      String            // 积分来源说明，必填
+  evidence    String?           // 凭证附件路径
+  
+  sourceType  ScoreSourceType?  // 积分来源类型（需求/项目/空）
+  sourceNo    String?           // 需求单号（sourceType=REQUIREMENT 时必填）
+  sourceName  String?           // 项目名称（sourceType=PROJECT 时必填）
+  
+  createdBy   String            // 录入人 ID
+  approvedBy  String?           // 审核人 ID
+  approvedAt  DateTime?         // 审核通过时间
+  
+  effectMonth String            // 格式：YYYY-MM，取审核通过时间所在月份
+  
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  
+  appeals     Appeal[]
+  
+  @@map("score_records")
+}
+
+model Appeal {
+  id            String       @id @default(cuid())
+  scoreRecordId String
+  scoreRecord   ScoreRecord  @relation(fields: [scoreRecordId], references: [id], onDelete: Cascade)
+  
+  userId        String       // 申诉人
+  submitter     User         @relation("AppealSubmitter", fields: [userId], references: [id])
+  
+  reason        String       // 申诉理由
+  evidence      String?      // 申诉证据
+  
+  status        AppealStatus @default(PENDING)
+  pmOpinion     String?      // 项目经理复核意见
+  reviewerId    String?      // 最终裁定人
+  reviewer      User?        @relation("AppealReviewer", fields: [reviewerId], references: [id])
+  result        String?      // 裁定结果
+  
+  createdAt     DateTime     @default(now())
+  resolvedAt    DateTime?
+  
+  @@map("appeals")
+}
+
+model TaskConfig {
+  id            String   @id @default(cuid())
+  pmBonusRatio  Float    @default(0.10)  // PM 任务管理分成比例
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+
+  @@map("task_configs")
+}
+
+model PerformanceConfig {
+  id         String   @id @default(cuid())
+  grade      String   @unique // A / B+ / B / C / D
+  minScore   Float    // 对应最低积分阈值
+  updatedBy  String   // 最后修改人（部门经理）
+  updatedAt  DateTime @default(now())
+  
+  @@map("performance_configs")
+}
+
+model OperationLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  
+  action      String   // 操作类型
+  resource    String   // 操作对象
+  resourceId  String?  // 对象 ID
+  detail      String?  // 操作详情
+  ip          String?  // IP 地址
+  
+  createdAt   DateTime @default(now())
+  
+  @@map("operation_logs")
+}
+
+enum BadgeType {
+  MONTHLY_STAR          // 月度之星
+  CONSECUTIVE_A_GRADE   // 连续3个月A级
+  TASK_HARVESTER        // 任务收割机
+  ZERO_REJECTION        // 零驳回
+  KNOWLEDGE_CONTRIBUTOR // 知识贡献者
+  MILESTONE_100         // 累计积分100
+  MILESTONE_500         // 累计积分500
+  MILESTONE_1000        // 累计积分1000
+  CONSECUTIVE_BP        // 连续3个月B+以上
+}
+
+model Badge {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      BadgeType
+  reason    String
+  month     String?   // 获得月份 YYYY-MM（月度徽章使用）
+  
+  createdAt DateTime  @default(now())
+  
+  @@unique([userId, type, month])
+  @@map("badges")
+}
+
+enum ExtensionStatus {
+  PENDING   // 待审批
+  APPROVED  // 已通过
+  REJECTED  // 已驳回
+}
+
+model TaskExtension {
+  id          String         @id @default(cuid())
+  taskId      String
+  task        Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  reason      String         // 延期原因
+  extendDays  Int            // 申请延期天数
+  newDeadline DateTime       // 申请的新截止日期
+  
+  status      ExtensionStatus @default(PENDING)
+  reviewedBy  String?        // 审批人ID
+  reviewNote  String?        // 审批意见
+  
+  createdAt   DateTime       @default(now())
+  reviewedAt  DateTime?
+  
+  @@map("task_extensions")
+}
+
+model PenaltyConfig {
+  id              String   @id @default(cuid())
+  dailyDecayRate  Float    @default(0.9)  // 每延期1天的衰减系数
+  minScoreRatio   Float    @default(0.3)  // 最低积分比例（不能扣成0）
+  monthlyExtLimit Int      @default(3)    // 每人每月延期申请上限
+  updatedBy       String
+  updatedAt       DateTime @default(now())
+  
+  @@map("penalty_configs")
+}
+
+model SystemModule {
+  id          String   @id @default(cuid())
+  name        String   @unique // 系统名称
+  code        String?  @unique // 系统编码
+  description String?  // 系统描述
+  status      Boolean  @default(true) // 是否启用
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  tasks       Task[]   // 关联的任务
+  issues      Issue[]  // 关联的问题
+  
+  @@map("system_modules")
+}
+
+enum ReviewStyle {
+  ENCOURAGING   // 新人鼓励型
+  STRICT        // 老油子敲打型
+  MOTIVATING    // 骨干激励型
+  GENERAL       // 通用型
+}
+
+enum ReviewStatus {
+  DRAFT      // 草稿，可编辑
+  PUBLISHED  // 已下发，不可修改
+}
+
+enum IssueCategory {
+  CONSULTATION   // 咨询
+  BUG            // 系统BUG
+  DATA_QUERY     // 提数
+  TEST_SUPPORT   // 测试配合
+  OTHER          // 其它
+}
+
+enum IssueScoreStatus {
+  PENDING   // 待审核
+  APPROVED  // 已通过
+  REJECTED  // 已拒绝
+}
+
+model IssueScore {
+  id             String            @id @default(cuid())
+  issueId        String            @unique
+  issue          Issue             @relation(fields: [issueId], references: [id])
+  
+  requestedScore Float             // 申请的积分额度
+  approvedScore  Float?            // PM审核后的积分
+  
+  reviewerId     String?
+  reviewer       User?             @relation(fields: [reviewerId], references: [id], name: "IssueScoreReviewer")
+  
+  status         IssueScoreStatus  @default(PENDING)
+  
+  remark         String?           // 备注
+  
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  
+  @@map("issue_scores")
+}
+
+model Issue {
+  id          String         @id @default(cuid())
+  title       String         // 问题标题
+  description String         // 内容简述
+  systemModuleId String?
+  systemModule   SystemModule? @relation(fields: [systemModuleId], references: [id])
+  
+  occurredAt  DateTime      // 发生时间
+  resolvedAt  DateTime?     // 解决时间
+  
+  hoursSpent  Float         // 时间花费（小时）
+  category    IssueCategory // 问题分类
+  
+  remark      String?       // 备注
+  
+  createdBy   String
+  creator     User          @relation(fields: [createdBy], references: [id])
+  
+  issueScore  IssueScore?   // 关联的积分申请
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  @@map("issues")
+}
+
+model PerformanceReview {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  month       String       // YYYY-MM
+  style       ReviewStyle  @default(GENERAL)
+  content     String       // AI生成的评语内容
+  scoreData   String?      // JSON格式的积分数据快照
+  status      ReviewStatus @default(DRAFT)
+  publishedAt DateTime?    // 下发时间
+  publishedBy String?      // 下发人ID
+  
+  createdBy   String       // 生成人ID
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  @@unique([userId, month, style])
+  @@map("performance_reviews")
+}

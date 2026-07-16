@@ -1,0 +1,909 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { scoreApi, taskApi, badgeApi, userApi, reviewApi } from '@/lib/api';
+
+function getFinishStatus(task: any): 'ahead' | 'ontime' | 'delay' | 'none' {
+  if (!task.actualFinishAt || !task.planFinishAt) return 'none';
+  const actual = new Date(task.actualFinishAt).setHours(0, 0, 0, 0);
+  const plan = new Date(task.planFinishAt).setHours(0, 0, 0, 0);
+  if (actual < plan) return 'ahead';
+  if (actual > plan) return 'delay';
+  return 'ontime';
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [stats, setStats] = useState({
+    myScore: 0,
+    taskCount: 0,
+    aheadCount: 0,
+    ontimeCount: 0,
+    delayCount: 0,
+    pendingTasks: 0,
+    urgentTasks: 0,
+    ranking: '-',
+  });
+  const [progress, setProgress] = useState<any>(null);
+  const [earnedBadges, setEarnedBadges] = useState<any[]>([]);
+  const [history, setHistory] = useState<{ months: string[]; scores: { month: string; score: number; grade: string }[]; rankings: { month: string; rank: number | null }[] } | null>(null);
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if (userStr) setUser(JSON.parse(userStr));
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    Promise.all([
+      scoreApi.myRecords(month),
+      taskApi.list(),
+      scoreApi.ranking(month),
+      scoreApi.myProgress().catch(() => ({ data: null })),
+      badgeApi.myBadges().catch(() => ({ data: [] })),
+      scoreApi.myHistory().catch(() => ({ data: null })),
+    ]).then(([scoreRes, taskRes, rankRes, progressRes, badgeRes, historyRes]) => {
+      const myRecords = scoreRes.data || [];
+      const tasks = taskRes.data || [];
+      const rankings = rankRes.data || [];
+
+      const myScore = myRecords.reduce((sum: number, r: any) => sum + (r.score || 0), 0);
+      const pendingTasks = tasks.filter((t: any) =>
+        ['PENDING', 'IN_PROGRESS', 'IN_REVIEW'].includes(t.status)
+      );
+
+      const twoDaysLater = new Date();
+      twoDaysLater.setDate(twoDaysLater.getDate() + 2);
+      const urgentTasks = pendingTasks.filter((t: any) =>
+        t.planFinishAt && new Date(t.planFinishAt) <= twoDaysLater
+      );
+
+      const completedTasks = tasks.filter((t: any) => t.status === 'COMPLETED');
+      const aheadCount = completedTasks.filter((t: any) => getFinishStatus(t) === 'ahead').length;
+      const ontimeCount = completedTasks.filter((t: any) => getFinishStatus(t) === 'ontime').length;
+      const delayCount = completedTasks.filter((t: any) => getFinishStatus(t) === 'delay').length;
+
+      const myRank = rankings.findIndex((r: any) => r.userId === user.id) + 1;
+
+      setStats({
+        myScore: Math.round(myScore * 10) / 10,
+        taskCount: tasks.length,
+        aheadCount,
+        ontimeCount,
+        delayCount,
+        pendingTasks: pendingTasks.length,
+        urgentTasks: urgentTasks.length,
+        ranking: myRank > 0 ? `${myRank}` : '-',
+      });
+
+      setProgress(progressRes.data);
+      setEarnedBadges((badgeRes.data || []).filter((b: any) => b.earned));
+      setHistory(historyRes.data);
+    }).catch(() => {});
+  }, [user]);
+
+  const goToScores = () => router.push('/dashboard/scores');
+  const goToTasks = () => router.push('/dashboard/tasks');
+  const goToRanking = () => router.push('/dashboard/ranking');
+  const goToProgress = () => router.push('/dashboard/progress');
+  const goToBadges = () => router.push('/dashboard/badges');
+
+  const gradeColors: Record<string, string> = {
+    'A': 'bg-green-100 text-green-800',
+    'B+': 'bg-blue-100 text-blue-800',
+    'B': 'bg-yellow-100 text-yellow-800',
+    'C': 'bg-orange-100 text-orange-800',
+    'D': 'bg-red-100 text-red-800',
+  };
+
+  const isManager = user?.role === 'PM' || user?.role === 'MANAGER';
+  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'tasks'>('overview');
+
+  if (!user) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">仪表盘</h1>
+        <div className="mt-8 text-center text-gray-500">加载中...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-gray-900">仪表盘</h1>
+      <p className="mt-1 text-sm text-gray-500">欢迎使用积分绩效管理系统</p>
+
+      {isManager && (
+        <div className="mt-4 flex border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-2 text-sm font-medium ${activeTab === 'overview' ? 'border-b-2 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+            style={activeTab === 'overview' ? { borderColor: 'hsl(var(--telecom-blue))', color: 'hsl(var(--telecom-blue))' } : {}}
+          >
+            我的概览
+          </button>
+          <button
+            onClick={() => setActiveTab('members')}
+            className={`px-4 py-2 text-sm font-medium ${activeTab === 'members' ? 'border-b-2 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+            style={activeTab === 'members' ? { borderColor: 'hsl(var(--telecom-blue))', color: 'hsl(var(--telecom-blue))' } : {}}
+          >
+            成员总览
+          </button>
+          <button
+            onClick={() => setActiveTab('tasks')}
+            className={`px-4 py-2 text-sm font-medium ${activeTab === 'tasks' ? 'border-b-2 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+            style={activeTab === 'tasks' ? { borderColor: 'hsl(var(--telecom-blue))', color: 'hsl(var(--telecom-blue))' } : {}}
+          >
+            任务总览
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'overview' && (
+      <div>
+      <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {/* 本月积分 */}
+        <div
+          onClick={goToScores}
+          className="cursor-pointer rounded-xl bg-white p-6 shadow-md transition hover:shadow-xl border border-gray-100"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-500">本月积分</p>
+            <div className="rounded-lg p-2" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+              <svg className="h-5 w-5" style={{ color: 'hsl(var(--telecom-blue))' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+            </div>
+          </div>
+          <p className="mt-3 text-3xl font-bold" style={{ color: 'hsl(var(--telecom-blue))' }}>{stats.myScore}</p>
+          {progress?.currentGrade && (
+            <div className="mt-2">
+              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${gradeColors[progress.currentGrade] || 'bg-gray-100 text-gray-800'}`}>
+                {progress.currentGrade}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* 任务总数 - 带完成状态分布 */}
+        <div
+          onClick={goToTasks}
+          className="cursor-pointer rounded-xl bg-white p-6 shadow-md transition hover:shadow-xl border border-gray-100"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-500">任务总数</p>
+            <div className="rounded-lg p-2 bg-gray-50">
+              <svg className="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            </div>
+          </div>
+          <p className="mt-3 text-3xl font-bold text-gray-900">{stats.taskCount}</p>
+          {stats.taskCount > 0 && (
+            <div className="mt-3 flex items-center gap-3 text-xs">
+              <div className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-green-500"></span>
+                <span className="text-gray-600">提前 {stats.aheadCount}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-blue-500"></span>
+                <span className="text-gray-600">正常 {stats.ontimeCount}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-red-500"></span>
+                <span className="text-gray-600">延期 {stats.delayCount}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 待处理任务 - 带即将到期 */}
+        <div
+          onClick={goToTasks}
+          className="cursor-pointer rounded-xl bg-white p-6 shadow-md transition hover:shadow-xl border border-gray-100"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-500">待处理任务</p>
+            <div className="rounded-lg p-2 bg-orange-50">
+              <svg className="h-5 w-5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          </div>
+          <p className="mt-3 text-3xl font-bold text-orange-600">{stats.pendingTasks}</p>
+          {stats.urgentTasks > 0 && (
+            <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-600">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              即将到期 {stats.urgentTasks}
+            </div>
+          )}
+        </div>
+
+        {/* 本月排名 */}
+        <div
+          onClick={goToRanking}
+          className="cursor-pointer rounded-xl bg-white p-6 shadow-md transition hover:shadow-xl border border-gray-100"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-500">本月排名</p>
+            <div className="rounded-lg p-2 bg-green-50">
+              <svg className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+              </svg>
+            </div>
+          </div>
+          <p className="mt-3 text-3xl font-bold text-green-600">{stats.ranking}</p>
+        </div>
+      </div>
+
+      {/* 进度概览 & 徽章概览 */}
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* 等级进度 */}
+        {progress && (
+          <div
+            onClick={goToProgress}
+            className="cursor-pointer rounded-xl bg-white p-6 shadow-md transition hover:shadow-xl border border-gray-100"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-700">🎯 等级进度</h3>
+              <span className="text-xs text-gray-400">点击查看详情 →</span>
+            </div>
+            {progress.nextGrade ? (
+              <div className="mt-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${gradeColors[progress.currentGrade] || 'bg-gray-100 text-gray-800'}`}>
+                    {progress.currentGrade}
+                  </span>
+                  <span className="text-xs text-orange-600 font-medium">
+                    差 {progress.nextGradeGap} 分 → {progress.nextGrade}
+                  </span>
+                </div>
+                <div className="mt-2 h-3 w-full rounded-full bg-gray-200">
+                  <div
+                    className="h-3 rounded-full transition-all"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, (progress.currentScore / (progress.currentScore + progress.nextGradeGap)) * 100))}%`,
+                      backgroundColor: 'hsl(var(--telecom-blue))',
+                    }}
+                  />
+                </div>
+                <div className="mt-2 flex justify-between text-xs text-gray-400">
+                  <span>{progress.currentScore} 分</span>
+                  <span>剩余 {progress.daysRemaining} 天</span>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 text-center">
+                <span className="text-2xl">🎉</span>
+                <p className="mt-1 text-sm font-medium text-green-600">已达到最高等级！</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 徽章概览 */}
+        <div
+          onClick={goToBadges}
+          className="cursor-pointer rounded-xl bg-white p-6 shadow-md transition hover:shadow-xl border border-gray-100"
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-700">🏅 成就徽章</h3>
+            <span className="text-xs text-gray-400">点击查看详情 →</span>
+          </div>
+          <div className="mt-4">
+            {earnedBadges.length > 0 ? (
+              <div className="flex flex-wrap gap-3">
+                {earnedBadges.slice(0, 5).map((badge: any) => (
+                  <div
+                    key={badge.type}
+                    className="flex items-center gap-2 rounded-lg bg-yellow-50 px-3 py-2"
+                    title={badge.reason || badge.description}
+                  >
+                    <span className="text-lg">{badge.icon}</span>
+                    <span className="text-xs font-medium text-gray-700">{badge.name}</span>
+                  </div>
+                ))}
+                {earnedBadges.length > 5 && (
+                  <div className="flex items-center rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                    +{earnedBadges.length - 5} 更多
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 italic">暂未解锁徽章，继续加油！</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 历史趋势图 */}
+      {history && (
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <HistoryLineChart
+            title={`📈 ${new Date().getFullYear()}年积分趋势`}
+            data={history.scores.map(s => ({ label: s.month.slice(5), value: s.score, grade: s.grade }))}
+            color="#2563eb"
+            fillColor="rgba(37, 99, 235, 0.1)"
+            unit="分"
+          />
+          <HistoryLineChart
+            title={`🏆 ${new Date().getFullYear()}年排名趋势`}
+            data={history.rankings.map(r => ({ label: r.month.slice(5), value: r.rank, grade: undefined }))}
+            color="#16a34a"
+            fillColor="rgba(22, 163, 74, 0.1)"
+            unit="名"
+            reverseY
+          />
+        </div>
+      )}
+      </div>
+      )}
+
+      {activeTab === 'members' && isManager && (
+        <MemberOverview />
+      )}
+
+      {activeTab === 'tasks' && isManager && (
+        <TaskOverview />
+      )}
+    </div>
+  );
+}
+
+function TaskOverview() {
+  const [allTasks, setAllTasks] = useState<any[]>([]);
+  const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    taskApi.list()
+      .then(res => {
+        setAllTasks(res.data || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const now = new Date();
+  const twoDaysLater = new Date();
+  twoDaysLater.setDate(twoDaysLater.getDate() + 2);
+
+  const totalCount = allTasks.length;
+  const completedCount = allTasks.filter((t: any) => t.status === 'COMPLETED').length;
+  const inProgressCount = allTasks.filter((t: any) => t.status === 'IN_PROGRESS').length;
+  const pendingCount = allTasks.filter((t: any) => ['PENDING', 'IN_REVIEW'].includes(t.status)).length;
+  const delayedCount = allTasks.filter((t: any) =>
+    t.status !== 'COMPLETED' && t.planFinishAt && new Date(t.planFinishAt) < now
+  ).length;
+  const urgentCount = allTasks.filter((t: any) =>
+    t.status !== 'COMPLETED' && t.planFinishAt && new Date(t.planFinishAt) <= twoDaysLater && new Date(t.planFinishAt) >= now
+  ).length;
+
+  const filteredTasks = filterStatus === 'ALL'
+    ? allTasks
+    : allTasks.filter((t: any) => {
+        if (filterStatus === 'COMPLETED') return t.status === 'COMPLETED';
+        if (filterStatus === 'IN_PROGRESS') return t.status === 'IN_PROGRESS';
+        if (filterStatus === 'PENDING') return ['PENDING', 'IN_REVIEW'].includes(t.status);
+        if (filterStatus === 'DELAYED') return t.status !== 'COMPLETED' && t.planFinishAt && new Date(t.planFinishAt) < now;
+        if (filterStatus === 'URGENT') return t.status !== 'COMPLETED' && t.planFinishAt && new Date(t.planFinishAt) <= twoDaysLater && new Date(t.planFinishAt) >= now;
+        return true;
+      });
+
+  const statusMap: Record<string, string> = {
+    POOL: '任务池', CLAIMED: '待确认', DRAFT: '草稿', PENDING: '待执行',
+    IN_PROGRESS: '执行中', IN_REVIEW: '待审核', REJECTED: '已驳回',
+    COMPLETED: '已完成', CANCELLED: '已取消',
+  };
+
+  const statusColorMap: Record<string, string> = {
+    POOL: 'bg-gray-100 text-gray-800',
+    CLAIMED: 'bg-purple-100 text-purple-800',
+    DRAFT: 'bg-gray-100 text-gray-800',
+    PENDING: 'bg-yellow-100 text-yellow-800',
+    IN_PROGRESS: 'bg-blue-100 text-blue-800',
+    IN_REVIEW: 'bg-indigo-100 text-indigo-800',
+    REJECTED: 'bg-red-100 text-red-800',
+    COMPLETED: 'bg-green-100 text-green-800',
+    CANCELLED: 'bg-gray-100 text-gray-500',
+  };
+
+  const getTaskRisk = (task: any) => {
+    if (task.status === 'COMPLETED') return { label: '已完成', color: 'text-green-600' };
+    if (!task.planFinishAt) return { label: '-', color: 'text-gray-400' };
+    const plan = new Date(task.planFinishAt);
+    if (plan < now) return { label: '已延期', color: 'text-red-600' };
+    if (plan <= twoDaysLater) return { label: '即将到期', color: 'text-orange-600' };
+    return { label: '正常', color: 'text-green-600' };
+  };
+
+  const statCards = [
+    { label: '总任务数', value: totalCount, icon: '📋', color: 'text-gray-900', bg: 'bg-gray-50' },
+    { label: '已完成', value: completedCount, icon: '✅', color: 'text-green-600', bg: 'bg-green-50' },
+    { label: '进行中', value: inProgressCount, icon: '🔵', color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: '待处理', value: pendingCount, icon: '⏳', color: 'text-yellow-600', bg: 'bg-yellow-50' },
+    { label: '已延期', value: delayedCount, icon: '🔴', color: 'text-red-600', bg: 'bg-red-50' },
+    { label: '即将到期', value: urgentCount, icon: '⚠️', color: 'text-orange-600', bg: 'bg-orange-50' },
+  ];
+
+  const filters = [
+    { key: 'ALL', label: '全部' },
+    { key: 'COMPLETED', label: '已完成' },
+    { key: 'IN_PROGRESS', label: '进行中' },
+    { key: 'PENDING', label: '待处理' },
+    { key: 'URGENT', label: '即将到期' },
+    { key: 'DELAYED', label: '已延期' },
+  ];
+
+  return (
+    <div className="mt-6">
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        {statCards.map(card => (
+          <div key={card.label} className="rounded-xl bg-white p-4 shadow-md border border-gray-100">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-gray-500">{card.label}</p>
+              <span className="text-lg">{card.icon}</span>
+            </div>
+            <p className={`mt-2 text-2xl font-bold ${card.color}`}>{card.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* 筛选器 */}
+      <div className="mt-6 flex flex-wrap gap-2">
+        {filters.map(f => (
+          <button
+            key={f.key}
+            onClick={() => setFilterStatus(f.key)}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              filterStatus === f.key
+                ? 'text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+            style={filterStatus === f.key ? { backgroundColor: 'hsl(var(--telecom-blue))' } : {}}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 任务列表 */}
+      <div className="mt-4 rounded-xl bg-white shadow-md border border-gray-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-700">📋 任务列表</h3>
+          <span className="text-xs text-gray-400">共 {filteredTasks.length} 条</span>
+        </div>
+        {loading ? (
+          <div className="py-12 text-center text-gray-500">加载中...</div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="py-12 text-center text-gray-400">暂无任务</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">任务标题</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">负责人</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">下达人</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">状态</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">截止日期</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">风险状态</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredTasks.map((task: any) => {
+                  const risk = getTaskRisk(task);
+                  const assigneeNames = (task.assignments || []).map((a: any) => a.user?.name).filter(Boolean).join(', ') || (task.claimedUser?.name) || '-';
+                  return (
+                    <tr key={task.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-700 max-w-[280px] truncate">{task.title}</td>
+                      <td className="px-4 py-3 text-gray-500">{assigneeNames}</td>
+                      <td className="px-4 py-3 text-gray-500">{task.creator?.name || '-'}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusColorMap[task.status] || 'bg-gray-100 text-gray-800'}`}>
+                          {statusMap[task.status] || task.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">
+                        {task.planFinishAt ? new Date(task.planFinishAt).toLocaleDateString('zh-CN') : '-'}
+                      </td>
+                      <td className={`px-4 py-3 text-xs font-medium ${risk.color}`}>
+                        {risk.label}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const gradeColors: Record<string, string> = {
+  'A': '#16a34a',
+  'B+': '#2563eb',
+  'B': '#d97706',
+  'C': '#ea580c',
+  'D': '#dc2626',
+};
+
+function HistoryLineChart({
+  title,
+  data,
+  color,
+  fillColor,
+  unit,
+  reverseY,
+}: {
+  title: string;
+  data: { label: string; value: number | null; grade?: string }[];
+  color: string;
+  fillColor: string;
+  unit: string;
+  reverseY?: boolean;
+}) {
+  const validData = data.filter(d => d.value !== null && d.value !== undefined) as { label: string; value: number; grade?: string }[];
+  if (validData.length === 0) return null;
+
+  const values = validData.map(d => d.value);
+  const maxVal = reverseY ? Math.max(...values, 1) : Math.max(...values, 10);
+  const minVal = reverseY ? 1 : 0;
+  const range = maxVal - minVal || 1;
+
+  const width = 600;
+  const height = 260;
+  const padding = { top: 30, right: 30, bottom: 40, left: 50 };
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+
+  const getX = (i: number) => padding.left + (i / (data.length - 1)) * chartW;
+  const getY = (v: number) => {
+    const ratio = reverseY ? (v - minVal) / range : (v - minVal) / range;
+    return padding.top + chartH - ratio * chartH;
+  };
+
+  const points = validData.map((d, i) => {
+    const idx = data.findIndex(x => x.label === d.label);
+    return `${getX(idx)},${getY(d.value)}`;
+  }).join(' ');
+
+  const areaPoints = validData.length > 0
+    ? `${getX(data.findIndex(x => x.label === validData[0].label))},${padding.top + chartH} ${points} ${getX(data.findIndex(x => x.label === validData[validData.length - 1].label))},${padding.top + chartH}`
+    : '';
+
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-md border border-gray-100">
+      <h3 className="text-sm font-semibold text-gray-700 mb-4">{title}</h3>
+      <div className="overflow-x-auto">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ minWidth: 500 }}>
+          {[0, 1, 2, 3, 4].map(i => {
+            const y = padding.top + (chartH / 4) * i;
+            const val = Math.round(minVal + range * (1 - i / 4));
+            return (
+              <g key={i}>
+                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#e5e7eb" strokeDasharray="4" />
+                <text x={padding.left - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#9ca3af">{val}</text>
+              </g>
+            );
+          })}
+
+          {data.map((d, i) => (
+            <text key={i} x={getX(i)} y={height - 10} textAnchor="middle" fontSize="11" fill="#9ca3af">
+              {d.label}
+            </text>
+          ))}
+
+          {areaPoints && (
+            <polygon points={areaPoints} fill={fillColor} />
+          )}
+
+          {points && (
+            <polyline points={points} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          )}
+
+          {validData.map((d, i) => {
+            const idx = data.findIndex(x => x.label === d.label);
+            const hasGrade = d.grade && d.grade !== 'D';
+            const gradeColor = d.grade ? (gradeColors[d.grade] || color) : color;
+            return (
+              <g key={i}>
+                <circle cx={getX(idx)} cy={getY(d.value)} r="4" fill={gradeColor} stroke="white" strokeWidth="2" />
+                <rect
+                  x={getX(idx) - 16}
+                  y={getY(d.value) - 28}
+                  width="32"
+                  height="16"
+                  rx="3"
+                  fill={gradeColor}
+                  opacity="0.9"
+                />
+                <text
+                  x={getX(idx)}
+                  y={getY(d.value) - 16}
+                  textAnchor="middle"
+                  fontSize="10"
+                  fill="white"
+                  fontWeight="700"
+                >
+                  {d.value}{unit}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function MemberOverview() {
+  const [users, setUsers] = useState<any[]>([]);
+  const [selectedUser, setSelectedUser] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [userStats, setUserStats] = useState<any>(null);
+  const [userTasks, setUserTasks] = useState<any[]>([]);
+  const [userScores, setUserScores] = useState<any[]>([]);
+  const [userReview, setUserReview] = useState<any>(null);
+  const [userHistory, setUserHistory] = useState<any>(null);
+  const [userProgress, setUserProgress] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    userApi.list().then(res => {
+      const list = res.data || [];
+      setUsers(list.filter((u: any) => u.role === 'MEMBER'));
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!selectedUser) {
+      setUserStats(null);
+      return;
+    }
+    setLoading(true);
+    Promise.all([
+      scoreApi.userRecords(selectedUser, selectedMonth),
+      taskApi.list(selectedUser),
+      scoreApi.ranking(selectedMonth),
+      reviewApi.userReviews(selectedUser, selectedMonth),
+      scoreApi.userHistory(selectedUser),
+      scoreApi.userProgress(selectedUser),
+    ]).then(([scoresRes, tasksRes, rankingRes, reviewRes, historyRes, progressRes]) => {
+      const scores = scoresRes.data || [];
+      const tasks = tasksRes.data || [];
+      const rankings = rankingRes.data || [];
+      const totalScore = scores.reduce((sum: number, r: any) => sum + (r.score || 0), 0);
+      const completedTasks = tasks.filter((t: any) => t.status === 'COMPLETED');
+      const myRank = rankings.findIndex((r: any) => r.userId === selectedUser) + 1;
+      const userName = users.find((u: any) => u.id === selectedUser)?.name || '';
+
+      setUserScores(scores);
+      setUserTasks(tasks);
+      setUserReview((reviewRes.data || [])[0] || null);
+      setUserHistory(historyRes.data);
+      setUserProgress(progressRes.data);
+      setUserStats({
+        name: userName,
+        score: Math.round(totalScore * 10) / 10,
+        rank: myRank > 0 ? myRank : '-',
+        taskCount: tasks.length,
+        completedCount: completedTasks.length,
+        grade: progressRes.data?.currentGrade || '-',
+      });
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [selectedUser, selectedMonth, users]);
+
+  const months: string[] = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+
+  const gradeColors: Record<string, string> = {
+    'A': 'bg-green-100 text-green-800',
+    'B+': 'bg-blue-100 text-blue-800',
+    'B': 'bg-yellow-100 text-yellow-800',
+    'C': 'bg-orange-100 text-orange-800',
+    'D': 'bg-red-100 text-red-800',
+  };
+
+  const statusMap: Record<string, string> = {
+    POOL: '任务池', CLAIMED: '待确认', DRAFT: '草稿', PENDING: '待执行',
+    IN_PROGRESS: '执行中', IN_REVIEW: '待审核', REJECTED: '已驳回',
+    COMPLETED: '已完成', CANCELLED: '已取消',
+  };
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-center gap-4 mb-6">
+        <select
+          value={selectedUser}
+          onChange={e => setSelectedUser(e.target.value)}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+        >
+          <option value="">选择成员</option>
+          {users.map(u => (
+            <option key={u.id} value={u.id}>{u.name}</option>
+          ))}
+        </select>
+        <select
+          value={selectedMonth}
+          onChange={e => setSelectedMonth(e.target.value)}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+        >
+          {months.map(m => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+      </div>
+
+      {!selectedUser && (
+        <div className="text-center text-gray-500 py-12">请选择要查看的成员</div>
+      )}
+
+      {selectedUser && loading && (
+        <div className="text-center text-gray-500 py-12">加载中...</div>
+      )}
+
+      {selectedUser && !loading && userStats && (
+        <div>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl bg-white p-6 shadow-md border border-gray-100">
+              <p className="text-sm font-medium text-gray-500">本月积分</p>
+              <p className="mt-3 text-3xl font-bold" style={{ color: 'hsl(var(--telecom-blue))' }}>{userStats.score}</p>
+              {userStats.grade && userStats.grade !== '-' && (
+                <div className="mt-2">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${gradeColors[userStats.grade] || 'bg-gray-100 text-gray-800'}`}>
+                    {userStats.grade}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="rounded-xl bg-white p-6 shadow-md border border-gray-100">
+              <p className="text-sm font-medium text-gray-500">本月排名</p>
+              <p className="mt-3 text-3xl font-bold text-green-600">{userStats.rank}</p>
+            </div>
+            <div className="rounded-xl bg-white p-6 shadow-md border border-gray-100">
+              <p className="text-sm font-medium text-gray-500">任务完成</p>
+              <p className="mt-3 text-3xl font-bold text-gray-900">{userStats.completedCount}/{userStats.taskCount}</p>
+            </div>
+            <div className="rounded-xl bg-white p-6 shadow-md border border-gray-100">
+              <p className="text-sm font-medium text-gray-500">当前等级</p>
+              <p className="mt-3 text-3xl font-bold text-purple-600">{userProgress?.currentGrade || '-'}</p>
+              {userProgress?.nextGrade && (
+                <p className="mt-2 text-xs text-gray-400">差 {userProgress.nextGradeGap} 分 → {userProgress.nextGrade}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="rounded-xl bg-white p-6 shadow-md border border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">📋 任务列表</h3>
+              <div className="max-h-64 overflow-auto">
+                {userTasks.length === 0 ? (
+                  <p className="text-sm text-gray-400">暂无任务</p>
+                ) : (
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs text-gray-500">标题</th>
+                        <th className="px-3 py-2 text-left text-xs text-gray-500">状态</th>
+                        <th className="px-3 py-2 text-left text-xs text-gray-500">积分</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {userTasks.map((t: any) => (
+                        <tr key={t.id}>
+                          <td className="px-3 py-2 text-gray-700 truncate max-w-[200px]">{t.title}</td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${
+                              t.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+                              t.status === 'IN_PROGRESS' ? 'bg-yellow-100 text-yellow-800' :
+                              t.status === 'IN_REVIEW' ? 'bg-purple-100 text-purple-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {statusMap[t.status] || t.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-500">
+                            {t.scoreRecords?.find((r: any) => r.userId === selectedUser)?.score || '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-white p-6 shadow-md border border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">⭐ 积分记录</h3>
+              <div className="max-h-64 overflow-auto">
+                {userScores.length === 0 ? (
+                  <p className="text-sm text-gray-400">暂无积分记录</p>
+                ) : (
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs text-gray-500">日期</th>
+                        <th className="px-3 py-2 text-left text-xs text-gray-500">类型</th>
+                        <th className="px-3 py-2 text-left text-xs text-gray-500">积分</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {userScores.map((r: any) => (
+                        <tr key={r.id}>
+                          <td className="px-3 py-2 text-gray-500">{new Date(r.createdAt).toLocaleDateString('zh-CN')}</td>
+                          <td className="px-3 py-2 text-gray-700">{r.type === 'OPS' ? '运维' : '需求'}</td>
+                          <td className={`px-3 py-2 font-bold ${r.score >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {r.score > 0 ? `+${r.score}` : r.score}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {userReview && (
+            <div className="mt-6 rounded-xl bg-white p-6 shadow-md border border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">🤖 绩效评语</h3>
+              <div className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-4">
+                {userReview.content}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  userReview.status === 'PUBLISHED' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {userReview.status === 'PUBLISHED' ? '已下发' : '草稿'}
+                </span>
+                {userReview.publishedAt && (
+                  <span className="text-xs text-gray-400">{new Date(userReview.publishedAt).toLocaleDateString('zh-CN')} 下发</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {userHistory && (
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <HistoryLineChart
+                title={`📈 ${new Date().getFullYear()}年积分趋势`}
+                data={userHistory.scores.map((s: any) => ({ label: s.month.slice(5), value: s.score, grade: s.grade }))}
+                color="#2563eb"
+                fillColor="rgba(37, 99, 235, 0.1)"
+                unit="分"
+              />
+              <HistoryLineChart
+                title={`🏆 ${new Date().getFullYear()}年排名趋势`}
+                data={userHistory.rankings.map((r: any) => ({ label: r.month.slice(5), value: r.rank, grade: undefined }))}
+                color="#16a34a"
+                fillColor="rgba(22, 163, 74, 0.1)"
+                unit="名"
+                reverseY
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

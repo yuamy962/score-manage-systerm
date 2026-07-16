@@ -873,7 +873,7 @@ export default function TasksPage() {
                       {task.status === 'REJECTED' && task.assignments?.some((a: any) => a.userId === user.id) && (
                         <button onClick={() => handleStatus(task.id, 'IN_PROGRESS')} style={{ color: 'hsl(var(--telecom-blue))' }} className="hover:opacity-70">重新处理</button>
                       )}
-                      {canEdit && ['DRAFT', 'PENDING', 'POOL'].includes(task.status) && (
+                      {canEdit && ['DRAFT', 'PENDING', 'POOL', 'IN_PROGRESS'].includes(task.status) && (
                         <button onClick={() => handleEdit(task)} style={{ color: 'hsl(var(--telecom-blue))' }} className="hover:opacity-70">编辑</button>
                       )}
                       {canEdit && ['DRAFT', 'PENDING', 'POOL', 'CLAIMED'].includes(task.status) && (

@@ -475,8 +475,8 @@ export class TasksService {
       throw new ForbiddenException('无权编辑此任务');
     }
 
-    if (!['DRAFT', 'PENDING', 'POOL'].includes(task.status)) {
-      throw new ForbiddenException('只有草稿、待执行或任务池状态的任务可以编辑');
+    if (!['DRAFT', 'PENDING', 'POOL', 'IN_PROGRESS'].includes(task.status)) {
+      throw new ForbiddenException('只有草稿、待执行、任务池或执行中状态的任务可以编辑');
     }
 
     const updateData: any = {};
@@ -496,7 +496,7 @@ export class TasksService {
     if (data.taskAction !== undefined) updateData.taskAction = data.taskAction;
     if (data.scoreRatio !== undefined) updateData.scoreRatio = data.scoreRatio;
     if (data.planFinishAt !== undefined) {
-      if (task.actualStartAt) {
+      if (task.actualStartAt && role !== Role.MANAGER && role !== Role.PM) {
         throw new ForbiddenException('任务已开始，截止日期不可修改，请通过延期申请调整');
       }
       updateData.planFinishAt = data.planFinishAt ? new Date(data.planFinishAt) : null;

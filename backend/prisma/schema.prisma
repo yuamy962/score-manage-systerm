@@ -92,7 +92,11 @@ model User {
   performanceReviews PerformanceReview[]
   issues             Issue[]        // 创建的问题
   reviewedIssueScores IssueScore[]  @relation("IssueScoreReviewer")
-  
+  knowledgeCreated        Knowledge[]        @relation("KnowledgeCreator")
+  knowledgeReviewed       Knowledge[]        @relation("KnowledgeReviewer")
+  knowledgeVersionCreated KnowledgeVersion[] @relation("KnowledgeVersionCreator")
+  knowledgeVersionReviewed KnowledgeVersion[] @relation("KnowledgeVersionReviewer")
+
   @@map("users")
 }
 
@@ -327,7 +331,9 @@ model SystemModule {
   
   tasks       Task[]   // 关联的任务
   issues      Issue[]  // 关联的问题
-  
+  knowledgeModules KnowledgeModule[]
+  knowledges       Knowledge[]
+
   @@map("system_modules")
 }
 
@@ -422,4 +428,124 @@ model PerformanceReview {
   
   @@unique([userId, month, style])
   @@map("performance_reviews")
+}
+
+// ============ 知识中心 ============
+
+enum KnowledgeType {
+  BASIC      // 基础信息类
+  OPERATION  // 操作流程类
+  PROBLEM    // 问题经验类
+}
+
+enum KnowledgeStatus {
+  DRAFT     // 草稿
+  PENDING   // 待审核
+  PUBLISHED // 已发布
+  OFFLINE   // 已下架
+}
+
+enum KnowledgePermission {
+  NORMAL     // 普通知识
+  RESTRICTED // 内部受限知识
+}
+
+// 知识模块（系统下的二级模块，与现有 SystemModule 系统层级联）
+model KnowledgeModule {
+  id             String       @id @default(cuid())
+  systemModuleId String
+  systemModule   SystemModule @relation(fields: [systemModuleId], references: [id])
+
+  name      String
+  status    Boolean  @default(true)
+  sortOrder Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  knowledges Knowledge[]
+
+  @@unique([systemModuleId, name])
+  @@map("knowledge_modules")
+}
+
+// 知识主表
+model Knowledge {
+  id            String            @id @default(cuid())
+  title         String
+  knowledgeType KnowledgeType
+  systemModuleId String?
+  systemModule   SystemModule?     @relation(fields: [systemModuleId], references: [id])
+  moduleId       String?
+  module         KnowledgeModule?  @relation(fields: [moduleId], references: [id])
+
+  status          KnowledgeStatus     @default(DRAFT)
+  permissionLevel KnowledgePermission @default(NORMAL)
+
+  currentVersionId String?            @unique
+  currentVersion   KnowledgeVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+
+  creatorId String
+  creator   User   @relation("KnowledgeCreator", fields: [creatorId], references: [id])
+
+  reviewerId String?
+  reviewer   User?  @relation("KnowledgeReviewer", fields: [reviewerId], references: [id])
+
+  usageCount      Int       @default(0)
+  lastConfirmedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  versions    KnowledgeVersion[] @relation("Versions")
+  attachments KnowledgeAttachment[]
+
+  @@map("knowledge")
+}
+
+// 知识版本
+model KnowledgeVersion {
+  id           String    @id @default(cuid())
+  knowledgeId  String
+  knowledge    Knowledge @relation("Versions", fields: [knowledgeId], references: [id], onDelete: Cascade)
+
+  version        Int
+  title          String
+  contentJson    Json     // AI 整理后的结构化内容
+  rawContentJson Json?    // 员工原始录入内容（用于左右对照/重新整理）
+  contentText    String   @default("") // 纯文本，用于检索
+  keywords       String[] @default([])
+
+  changeReason String?
+
+  creatorId String
+  creator   User   @relation("KnowledgeVersionCreator", fields: [creatorId], references: [id])
+
+  reviewerId String?
+  reviewer   User?  @relation("KnowledgeVersionReviewer", fields: [reviewerId], references: [id])
+  reviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  currentOf Knowledge? @relation("CurrentVersion")
+
+  @@map("knowledge_versions")
+}
+
+// 知识附件
+model KnowledgeAttachment {
+  id          String    @id @default(cuid())
+  knowledgeId String
+  knowledge   Knowledge @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
+  versionId   String?
+
+  fileName  String
+  filePath  String
+  fileType  String?
+  uploaderId String?
+
+  createdAt DateTime @default(now())
+
+  @@map("knowledge_attachments")
 }

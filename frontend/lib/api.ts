@@ -156,3 +156,28 @@ export const issueScoreApi = {
     api.put(`/issue-scores/${id}`, data),
   delete: (id: string) => api.delete(`/issue-scores/${id}`),
 };
+
+export const knowledgeApi = {
+  // 知识模块（二级模块）
+  modules: (systemModuleId?: string) =>
+    api.get('/knowledge/modules', { params: { systemModuleId } }),
+  allModules: () => api.get('/knowledge/modules/all'),
+  createModule: (data: { systemModuleId: string; name: string; sortOrder?: number }) =>
+    api.post('/knowledge/modules', data),
+  updateModule: (id: string, data: { name?: string; sortOrder?: number; status?: boolean }) =>
+    api.put(`/knowledge/modules/${id}`, data),
+  deleteModule: (id: string) => api.delete(`/knowledge/modules/${id}`),
+
+  // 知识
+  create: (data: any) => api.post('/knowledge', data),
+  update: (id: string, data: any) => api.patch(`/knowledge/${id}`, data),
+  organize: (data: { knowledgeType: string; rawContent?: any }) =>
+    api.post('/knowledge/organize', data),
+  submit: (id: string) => api.post(`/knowledge/${id}/submit`),
+  review: (id: string, data: { approved: boolean; reason?: string }) =>
+    api.post(`/knowledge/${id}/review`, data),
+  my: () => api.get('/knowledge/my'),
+  pending: () => api.get('/knowledge/pending'),
+  published: () => api.get('/knowledge/published'),
+  detail: (id: string) => api.get(`/knowledge/${id}`),
+};

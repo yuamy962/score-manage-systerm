@@ -14,6 +14,7 @@ import { ExtensionsModule } from './extensions/extensions.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { TaskConfigModule } from './config/config.module';
 import { IssuesModule } from './issues/issues.module';
+import { KnowledgeModule } from './knowledge/knowledge.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -27,6 +28,7 @@ import { AppController } from './app.controller';
     UsersModule,
     TasksModule,
     IssuesModule,
+    KnowledgeModule,
     ScoresModule,
     AppealsModule,
     NotificationModule,

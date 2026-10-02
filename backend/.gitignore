@@ -24,6 +24,3 @@ Thumbs.db
 logs/
 *.log
 npm-debug.log*
-
-# Prisma
-prisma/migrations/migration_lock.toml

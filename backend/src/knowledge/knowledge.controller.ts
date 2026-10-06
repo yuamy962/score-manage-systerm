@@ -12,7 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { Role, KnowledgeType, KnowledgePermission } from '@prisma/client';
+import { Role, KnowledgeType, KnowledgePermission, KnowledgeGapStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -113,6 +113,51 @@ export class KnowledgeController {
   @Get('published')
   async findPublished() {
     return this.knowledgeService.findPublished();
+  }
+
+  // ============ AI 知识问答 ============
+
+  @Post('ask')
+  async ask(
+    @Body() body: { question: string; source?: string },
+    @Request() req,
+  ) {
+    return this.knowledgeService.ask(req.user.id, body);
+  }
+
+  // ============ 知识缺口 ============
+
+  @Post('gaps')
+  async createGap(
+    @Body() body: { question: string; systemModuleId?: string; moduleId?: string },
+    @Request() req,
+  ) {
+    return this.knowledgeService.createGap(req.user.id, body);
+  }
+
+  @Get('gaps')
+  async listGaps(@Request() req, @Query('status') status?: KnowledgeGapStatus) {
+    return this.knowledgeService.listGaps({ id: req.user.id, role: req.user.role }, status);
+  }
+
+  @Patch('gaps/:id')
+  @Roles(Role.PM, Role.MANAGER)
+  async updateGap(
+    @Param('id') id: string,
+    @Body() body: { status?: KnowledgeGapStatus; handleNote?: string },
+    @Request() req,
+  ) {
+    return this.knowledgeService.updateGap({ id: req.user.id, role: req.user.role }, id, body);
+  }
+
+  @Post('gaps/:id/convert')
+  @Roles(Role.PM, Role.MANAGER)
+  async convertGap(
+    @Param('id') id: string,
+    @Body() body: { knowledgeId: string },
+    @Request() req,
+  ) {
+    return this.knowledgeService.convertGap({ id: req.user.id, role: req.user.role }, id, body.knowledgeId);
   }
 
   @Patch(':id')

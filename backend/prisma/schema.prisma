@@ -96,6 +96,9 @@ model User {
   knowledgeReviewed       Knowledge[]        @relation("KnowledgeReviewer")
   knowledgeVersionCreated KnowledgeVersion[] @relation("KnowledgeVersionCreator")
   knowledgeVersionReviewed KnowledgeVersion[] @relation("KnowledgeVersionReviewer")
+  knowledgeQuestions      KnowledgeQuestionLog[] @relation("KnowledgeQuestionAsker")
+  knowledgeGapsSubmitted KnowledgeGap[]     @relation("KnowledgeGapSubmitter")
+  knowledgeGapsHandled   KnowledgeGap[]     @relation("KnowledgeGapHandler")
 
   @@map("users")
 }
@@ -333,6 +336,7 @@ model SystemModule {
   issues      Issue[]  // 关联的问题
   knowledgeModules KnowledgeModule[]
   knowledges       Knowledge[]
+  knowledgeGaps    KnowledgeGap[] @relation("KnowledgeGapSystem")
 
   @@map("system_modules")
 }
@@ -464,6 +468,7 @@ model KnowledgeModule {
   updatedAt DateTime @updatedAt
 
   knowledges Knowledge[]
+  knowledgeGaps KnowledgeGap[] @relation("KnowledgeGapModule")
 
   @@unique([systemModuleId, name])
   @@map("knowledge_modules")
@@ -499,6 +504,7 @@ model Knowledge {
 
   versions    KnowledgeVersion[] @relation("Versions")
   attachments KnowledgeAttachment[]
+  originGaps  KnowledgeGap[]    @relation("KnowledgeGapOrigin")
 
   @@map("knowledge")
 }
@@ -548,4 +554,57 @@ model KnowledgeAttachment {
   createdAt DateTime @default(now())
 
   @@map("knowledge_attachments")
+}
+
+// AI 问答记录
+model KnowledgeQuestionLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("KnowledgeQuestionAsker", fields: [userId], references: [id])
+
+  question            String
+  answer              String    @default("")
+  matchedKnowledgeIds String[]  @default([])
+  matched             Boolean   @default(false)
+  source              String    @default("performance_system") // performance_system / wecom
+
+  createdAt DateTime @default(now())
+
+  @@map("knowledge_question_logs")
+}
+
+// 知识缺口状态
+enum KnowledgeGapStatus {
+  PENDING    // 待处理
+  PROCESSING // 处理中
+  RESOLVED   // 已解决
+  CONVERTED  // 已转知识
+}
+
+// 知识缺口
+model KnowledgeGap {
+  id       String @id @default(cuid())
+  question String
+
+  systemModuleId String?
+  systemModule   SystemModule?   @relation("KnowledgeGapSystem", fields: [systemModuleId], references: [id])
+  moduleId       String?
+  module         KnowledgeModule? @relation("KnowledgeGapModule", fields: [moduleId], references: [id])
+
+  submitterId String
+  submitter   User  @relation("KnowledgeGapSubmitter", fields: [submitterId], references: [id])
+
+  handlerId String?
+  handler   User?  @relation("KnowledgeGapHandler", fields: [handlerId], references: [id])
+
+  status      KnowledgeGapStatus @default(PENDING)
+  handleNote  String? // 处理说明
+  knowledgeId String? // 转为知识后关联的知识ID
+  knowledge   Knowledge? @relation("KnowledgeGapOrigin", fields: [knowledgeId], references: [id])
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  resolvedAt DateTime?
+
+  @@map("knowledge_gaps")
 }

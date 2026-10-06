@@ -1,13 +1,13 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 echo ========================================
-echo   ç§¯åˆ†ç»©æ•ˆç®¡ç†ç³»ç»Ÿ - é‡å¯è„šæœ¬
+echo   »ı·Ö¼¨Ğ§¹ÜÀíÏµÍ³ - ÖØÆô½Å±¾
 echo ========================================
 echo.
 
-echo [1/3] åœæ­¢ç°æœ‰æœåŠ¡...
-taskkill /fi "WINDOWTITLE eq åç«¯æœåŠ¡ (NestJS)*" >nul 2>&1
-taskkill /fi "WINDOWTITLE eq å‰ç«¯æœåŠ¡ (Next.js)*" >nul 2>&1
+echo [1/4] Í£Ö¹ÏÖÓĞ·şÎñ...
+taskkill /fi "WINDOWTITLE eq ºó¶Ë·şÎñ (NestJS)*" >nul 2>&1
+taskkill /fi "WINDOWTITLE eq Ç°¶Ë·şÎñ (Next.js)*" >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3001 ^| findstr LISTENING') do (
     taskkill /pid %%a /f >nul 2>&1
 )
@@ -16,19 +16,23 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3000 ^| findstr LISTENING') 
 )
 timeout /t 2 /nobreak >nul
 
-echo [2/3] å¯åŠ¨åç«¯æœåŠ¡...
-start "åç«¯æœåŠ¡ (NestJS)" cmd /k "cd /d %~dp0backend && npm run start:dev"
+echo [2/4] ÇåÀíÇ°¶Ë .next »º´æ£¨·ÀÖ¹ build ²úÎïÓë dev ³åÍ»£©...
+if exist "%~dp0frontend\.next" rd /s /q "%~dp0frontend\.next"
+timeout /t 1 /nobreak >nul
+
+echo [3/4] Æô¶¯ºó¶Ë·şÎñ...
+start "ºó¶Ë·şÎñ (NestJS)" cmd /k "cd /d %~dp0backend && npm run start:dev"
 timeout /t 3 /nobreak >nul
 
-echo [3/3] å¯åŠ¨å‰ç«¯æœåŠ¡...
-start "å‰ç«¯æœåŠ¡ (Next.js)" cmd /k "cd /d %~dp0frontend && npm run dev"
+echo [4/4] Æô¶¯Ç°¶Ë·şÎñ...
+start "Ç°¶Ë·şÎñ (Next.js)" cmd /k "cd /d %~dp0frontend && npm run dev"
 timeout /t 2 /nobreak >nul
 
 echo.
 echo ========================================
-echo   é‡å¯å®Œæˆï¼
-echo   åç«¯: http://localhost:3001
-echo   å‰ç«¯: http://localhost:3000
-echo   APIæ–‡æ¡£: http://localhost:3001/api/docs
+echo   ÖØÆôÍê³É£¡
+echo   ºó¶Ë: http://localhost:3001
+echo   Ç°¶Ë: http://localhost:3000
+echo   APIÎÄµµ: http://localhost:3001/api/docs
 echo ========================================
 pause

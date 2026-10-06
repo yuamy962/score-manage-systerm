@@ -5,13 +5,17 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import LibraryPanel from './panels/LibraryPanel';
 import MyPanel from './panels/MyPanel';
 import ReviewPanel from './panels/ReviewPanel';
+import AskPanel from './panels/AskPanel';
+import GapPanel from './panels/GapPanel';
 
-type TabKey = 'library' | 'my' | 'review';
+type TabKey = 'library' | 'ask' | 'my' | 'review' | 'gaps';
 
 const tabs: { key: TabKey; label: string; roles?: string[] }[] = [
   { key: 'library', label: '知识库' },
+  { key: 'ask', label: 'AI 知识助手' },
   { key: 'my', label: '我的知识' },
   { key: 'review', label: '知识审核', roles: ['PM', 'MANAGER'] },
+  { key: 'gaps', label: '知识缺口' },
 ];
 
 function KnowledgeTabs() {
@@ -19,6 +23,8 @@ function KnowledgeTabs() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>('library');
   const [currentUser, setCurrentUser] = useState<any>(null);
+  // 缺口转知识：携带问题跳转到「我的知识」自动打开向导
+  const [gapPrefill, setGapPrefill] = useState<{ question: string; gapId: string } | null>(null);
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
@@ -48,6 +54,15 @@ function KnowledgeTabs() {
     [router],
   );
 
+  // 缺口转知识：切换到我的知识并预填问题
+  const handleGapConvert = useCallback(
+    (gapId: string, question: string) => {
+      setGapPrefill({ question, gapId });
+      switchTab('my');
+    },
+    [switchTab],
+  );
+
   return (
     <>
       <div className="border-b border-gray-200">
@@ -69,8 +84,12 @@ function KnowledgeTabs() {
       </div>
 
       {activeTab === 'library' && <LibraryPanel />}
-      {activeTab === 'my' && <MyPanel />}
+      {activeTab === 'ask' && <AskPanel />}
+      {activeTab === 'my' && (
+        <MyPanel prefill={gapPrefill} onPrefillConsumed={() => setGapPrefill(null)} />
+      )}
       {activeTab === 'review' && <ReviewPanel />}
+      {activeTab === 'gaps' && <GapPanel role={currentUser?.role} onConvert={handleGapConvert} />}
     </>
   );
 }

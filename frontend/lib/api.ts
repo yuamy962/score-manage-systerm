@@ -180,4 +180,17 @@ export const knowledgeApi = {
   pending: () => api.get('/knowledge/pending'),
   published: () => api.get('/knowledge/published'),
   detail: (id: string) => api.get(`/knowledge/${id}`),
+
+  // AI 知识问答
+  ask: (question: string) => api.post('/knowledge/ask', { question }),
+
+  // 知识缺口
+  createGap: (data: { question: string; systemModuleId?: string; moduleId?: string }) =>
+    api.post('/knowledge/gaps', data),
+  gaps: (status?: string) =>
+    api.get('/knowledge/gaps', { params: status ? { status } : {} }),
+  updateGap: (id: string, data: { status?: string; handleNote?: string }) =>
+    api.patch(`/knowledge/gaps/${id}`, data),
+  convertGap: (id: string, knowledgeId: string) =>
+    api.post(`/knowledge/gaps/${id}/convert`, { knowledgeId }),
 };
